@@ -1,0 +1,11 @@
+{
+    "python.autoComplete.extraPaths": [
+        "${workspaceFolder}"
+    ],
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}"
+    ],
+    "terminal.integrated.env.windows": {
+        "PYTHONPATH":"${workspaceFolder};${env:PYTHONPATH}"
+    }
+}
