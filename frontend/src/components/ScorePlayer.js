@@ -1,38 +1,34 @@
-import React, { useState, useEffect, useRef } from 'react';
-import * as Vex from 'vexflow';
+import React from 'react';
+import * as Tone from 'tone';
 import axios from 'axios';
+import { useParams } from 'react-router-dom';
 
-const ScoreEditor = () => {
-  const [scoreData, setScoreData] = useState({ title: '', tracks: [] });
-  const scoreRef = useRef(null);
+const ScorePlayer = () => {
+  const { scoreId } = useParams();
 
-  useEffect(() => {
-    const { Flow } = Vex;
-    const div = scoreRef.current;
-    const renderer = new Flow.Renderer(div, Flow.Renderer.Backends.SVG);
-    renderer.resize(500, 200);
-    const context = renderer.getContext();
-    const stave = new Flow.Stave(10, 40, 400);
-    stave.addClef('treble').addTimeSignature('4/4');
-    stave.setContext(context).draw();
-  }, []);
-
-  const saveScore = async () => {
+  const playSegment = async () => {
     try {
-      await axios.post('http://localhost:8001/api/scores/', scoreData);
-      alert('Score saved!');
+      const response = await axios.post(
+        `${process.env.REACT_APP_BACKEND_URL}/api/scores/${scoreId}/play`,
+        { track_id: 0, start: 0, end: 4 }
+      );
+      await Tone.start();
+      const synth = new Tone.Synth().toDestination();
+      const now = Tone.now();
+      response.data.segment.forEach((note, index) => {
+        synth.triggerAttackRelease(note, '8n', now + index * 0.5);
+      });
     } catch (error) {
-      console.error('Error saving score:', error);
+      console.error('Error playing score:', error);
     }
   };
 
   return (
     <div>
-      <h2>Score Editor</h2>
-      <div ref={scoreRef} id="score"></div>
-      <button onClick={saveScore}>Save Score</button>
+      <h2>Score Player</h2>
+      <button onClick={playSegment}>Play Segment</button>
     </div>
   );
 };
 
-export default ScoreEditor;
+export default ScorePlayer;

@@ -1,4 +1,3 @@
- 
 import React from 'react';
 import axios from 'axios';
 import { useParams } from 'react-router-dom';
@@ -9,11 +8,11 @@ const ScoreExporter = () => {
   const exportScore = async (format) => {
     try {
       const response = await axios.post(
-        `http://localhost:8000/api/scores/${scoreId}/export`,
+        `${process.env.REACT_APP_BACKEND_URL}/api/scores/${scoreId}/export`,
         { track_id: 0, start: 0, end: 4, format }
       );
       const link = document.createElement('a');
-      link.href = `http://localhost:8000/${response.data.file_path}`;
+      link.href = `${process.env.REACT_APP_BACKEND_URL}/${response.data.file_path}`;
       link.download = `score.${format}`;
       link.click();
     } catch (error) {
