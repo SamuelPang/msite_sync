@@ -1,19 +1,28 @@
- 
 from pydantic import BaseModel
-from typing import Dict, Optional
+from typing import List
 
-class ScoreCreate(BaseModel):
+class Note(BaseModel):
+    pitch: str  # e.g., "c/4"
+    duration: str  # e.g., "q"
+
+    class Config:
+        orm_mode = True
+
+class Track(BaseModel):
+    notes: List[Note]
+
+    class Config:
+        orm_mode = True
+
+class ScoreBase(BaseModel):
     title: str
-    data: Dict
+    tracks: List[Track]
 
-class ScoreUpdate(BaseModel):
-    title: Optional[str] = None
-    data: Optional[Dict] = None
+class ScoreCreate(ScoreBase):
+    pass
 
-class ScoreResponse(BaseModel):
+class Score(ScoreBase):
     id: int
-    title: str
-    data: Dict
 
     class Config:
         orm_mode = True
