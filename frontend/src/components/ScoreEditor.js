@@ -49,7 +49,7 @@ const ScoreEditor = () => {
     const y = event.clientY - rect.top;
 
     // Staff properties (VexFlow defaults)
-    const staveTop = 40; // Top of the staff (y-position)
+    const staveTop = 80; // Top of the staff (y-position)
     const lineSpacing = 10; // Distance between staff lines in pixels
     const staffHeight = 4 * lineSpacing; // 5 lines, 4 spaces
 

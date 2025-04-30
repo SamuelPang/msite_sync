@@ -7,4 +7,4 @@ venv/
 *.xml 
 *.pdf 
 *.mp3 
-
+*mid 
