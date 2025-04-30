@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Renderer, Stave, StaveNote, Formatter } from 'vexflow';
 import axios from 'axios';
+import * as Tone from 'tone';
 
 const ScoreEditor = () => {
   const scoreRef = useRef(null);
   const [notes, setNotes] = useState([]);
   const [title, setTitle] = useState('New Score');
+  const [selectedDuration, setSelectedDuration] = useState('q'); // Default to quarter note
 
   useEffect(() => {
     renderScore();
@@ -30,7 +32,7 @@ const ScoreEditor = () => {
       const vexNotes = notes.map(note =>
         new StaveNote({
           keys: [note.pitch],
-          duration: 'q',
+          duration: note.duration,
         })
       );
       Formatter.FormatAndDraw(context, stave, vexNotes);
@@ -42,14 +44,50 @@ const ScoreEditor = () => {
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
 
-    // Simple y-to-pitch mapping (adjust as needed)
-    const pitchMap = ['c/5', 'b/4', 'a/4', 'g/4', 'f/4', 'e/4', 'd/4', 'c/4'];
-    const staveHeight = 100; // Approximate stave height
-    const pitchIndex = Math.floor((y - 40) / (staveHeight / pitchMap.length));
-    const pitch = pitchMap[pitchIndex] || 'c/4';
+    // Staff properties (VexFlow defaults)
+    const staveTop = 80; // Top of the staff (y-position)
+    const lineSpacing = 10; // Distance between staff lines in pixels
+    const staffHeight = 4 * lineSpacing; // 5 lines, 4 spaces
 
-    // Add new note
-    setNotes([...notes, { pitch, duration: 'q' }]);
+    // Define staff boundaries
+    const staffBottom = staveTop + staffHeight;
+    if (y < staveTop - lineSpacing || y > staffBottom + lineSpacing) {
+      return; // Ignore clicks too far above or below the staff
+    }
+
+    // Reference: Middle line of treble staff is B4
+    const middleLineY = staveTop + 2 * lineSpacing; // Y-position of B4 (third line)
+    const referencePitch = { note: 'b', octave: 4 };
+
+    // Calculate half-steps from B4
+    const yOffset = middleLineY - y; // Positive = higher pitch, negative = lower
+    const halfSteps = Math.round(yOffset / (lineSpacing / 2)); // Each line/space = 1 half-step
+
+    // Calculate new pitch
+    const pitchNames = ['c', 'd', 'e', 'f', 'g', 'a', 'b'];
+    let noteIndex = pitchNames.indexOf(referencePitch.note);
+    let newOctave = referencePitch.octave;
+    noteIndex += halfSteps;
+
+    // Adjust octave and note index
+    while (noteIndex >= pitchNames.length) {
+      noteIndex -= pitchNames.length;
+      newOctave += 1;
+    }
+    while (noteIndex < 0) {
+      noteIndex += pitchNames.length;
+      newOctave -= 1;
+    }
+
+    // Ensure pitch is within range (C3 to C6)
+    if (newOctave < 3 || (newOctave === 6 && pitchNames[noteIndex] > 'c')) {
+      return; // Ignore out-of-range pitches
+    }
+
+    const newPitch = `${pitchNames[noteIndex]}/${newOctave}`;
+
+    // Add new note with selected duration
+    setNotes([...notes, { pitch: newPitch, duration: selectedDuration }]);
   };
 
   const handleCanvasContextMenu = (event) => {
@@ -66,15 +104,47 @@ const ScoreEditor = () => {
   };
 
   const handleNoteClick = (index) => {
-    // Cycle pitch for clicked note
-    const pitchMap = ['c/4', 'd/4', 'e/4', 'f/4', 'g/4', 'a/4', 'b/4', 'c/5'];
-    const currentPitch = notes[index].pitch;
-    const currentIndex = pitchMap.indexOf(currentPitch);
-    const nextPitch = pitchMap[(currentIndex + 1) % pitchMap.length];
+    // Cycle through durations (whole, half, quarter)
+    const durationMap = ['w', 'h', 'q'];
+    const currentDuration = notes[index].duration;
+    const currentIndex = durationMap.indexOf(currentDuration);
+    const nextDuration = durationMap[(currentIndex + 1) % durationMap.length];
 
     const newNotes = [...notes];
-    newNotes[index] = { ...newNotes[index], pitch: nextPitch };
+    newNotes[index] = { ...newNotes[index], duration: nextDuration };
     setNotes(newNotes);
+  };
+
+  const playScore = async () => {
+    try {
+      await Tone.start();
+      const synth = new Tone.Synth().toDestination();
+      const now = Tone.now();
+      let currentTime = now;
+
+      notes.forEach((note) => {
+        // Convert VexFlow pitch (e.g., 'c/4') to Tone.js pitch (e.g., 'C4')
+        const tonePitch = note.pitch.split('/')[0].toUpperCase() + note.pitch.split('/')[1];
+        // Map VexFlow duration to Tone.js duration (assuming 120 BPM, 4/4 time)
+        const durationMap = {
+          'w': '2n', // Whole note = 2 seconds (4 beats)
+          'h': '4n', // Half note = 1 second (2 beats)
+          'q': '8n'  // Quarter note = 0.5 seconds (1 beat)
+        };
+        const toneDuration = durationMap[note.duration] || '8n';
+        synth.triggerAttackRelease(tonePitch, toneDuration, currentTime);
+        // Increment time based on duration (in seconds, 120 BPM)
+        const durationSeconds = {
+          'w': 2,
+          'h': 1,
+          'q': 0.5
+        };
+        currentTime += durationSeconds[note.duration] || 0.5;
+      });
+    } catch (error) {
+      console.error('Error playing score:', error);
+      alert('Failed to play score.');
+    }
   };
 
   const saveScore = async () => {
@@ -98,6 +168,27 @@ const ScoreEditor = () => {
         placeholder="Score Title"
         style={{ marginBottom: '10px' }}
       />
+      <div style={{ marginBottom: '10px' }}>
+        <label>Select Note Duration: </label>
+        <button
+          onClick={() => setSelectedDuration('w')}
+          style={{ margin: '5px', background: selectedDuration === 'w' ? '#ccc' : '#fff' }}
+        >
+          Whole
+        </button>
+        <button
+          onClick={() => setSelectedDuration('h')}
+          style={{ margin: '5px', background: selectedDuration === 'h' ? '#ccc' : '#fff' }}
+        >
+          Half
+        </button>
+        <button
+          onClick={() => setSelectedDuration('q')}
+          style={{ margin: '5px', background: selectedDuration === 'q' ? '#ccc' : '#fff' }}
+        >
+          Quarter
+        </button>
+      </div>
       <div
         ref={scoreRef}
         onClick={handleCanvasClick}
@@ -111,12 +202,15 @@ const ScoreEditor = () => {
             onClick={() => handleNoteClick(index)}
             style={{ margin: '5px' }}
           >
-            {note.pitch}
+            {note.pitch} ({note.duration})
           </button>
         ))}
       </div>
-      <button onClick={saveScore} style={{ marginTop: '10px' }}>
+      <button onClick={saveScore} style={{ margin: '10px' }}>
         Save Score
+      </button>
+      <button onClick={playScore} style={{ margin: '10px' }}>
+        Play Score
       </button>
     </div>
   );
