@@ -3,6 +3,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 import os
+import logging
 
 load_dotenv()
 
@@ -18,4 +19,7 @@ def get_db():
     try:
         yield db
     finally:
-        db.close()
+        try:
+            db.close()
+        except Exception as e:
+            logging.error(f"Error closing database session: {str(e)}")

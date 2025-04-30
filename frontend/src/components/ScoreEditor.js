@@ -2,26 +2,30 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Renderer, Stave, StaveNote, Formatter } from 'vexflow';
 import axios from 'axios';
 import * as Tone from 'tone';
+import { jsPDF } from 'jspdf';
+import { svg2pdf } from 'svg2pdf.js';
 
 const ScoreEditor = () => {
   const scoreRef = useRef(null);
   const [notes, setNotes] = useState([]);
   const [title, setTitle] = useState('New Score');
   const [selectedDuration, setSelectedDuration] = useState('q'); // Default to quarter note
+  const [scoreId, setScoreId] = useState(null); // Store scoreId from backend
 
   useEffect(() => {
     renderScore();
   }, [notes]);
 
-  const renderScore = () => {
-    const div = scoreRef.current;
+  const renderScore = (targetDiv = scoreRef.current) => {
+    if (!targetDiv) return;
+
     // Clear previous content
-    while (div.firstChild) {
-      div.removeChild(div.firstChild);
+    while (targetDiv.firstChild) {
+      targetDiv.removeChild(targetDiv.firstChild);
     }
 
-    const renderer = new Renderer(div, Renderer.Backends.SVG);
-    renderer.resize(500, 200);
+    const renderer = new Renderer(targetDiv, Renderer.Backends.SVG);
+    renderer.resize(500, 200); // Consistent dimensions for rendering
     const context = renderer.getContext();
 
     const stave = new Stave(10, 40, 400);
@@ -45,7 +49,7 @@ const ScoreEditor = () => {
     const y = event.clientY - rect.top;
 
     // Staff properties (VexFlow defaults)
-    const staveTop = 80; // Top of the staff (y-position)
+    const staveTop = 40; // Top of the staff (y-position)
     const lineSpacing = 10; // Distance between staff lines in pixels
     const staffHeight = 4 * lineSpacing; // 5 lines, 4 spaces
 
@@ -150,11 +154,117 @@ const ScoreEditor = () => {
   const saveScore = async () => {
     try {
       const scoreData = { title, tracks: [{ notes }] };
-      await axios.post(`${process.env.REACT_APP_BACKEND_URL}/api/scores/`, scoreData);
+      const response = await axios.post(`${process.env.REACT_APP_BACKEND_URL}/api/scores/`, scoreData);
+      setScoreId(response.data.id); // Store scoreId from backend
       alert('Score saved!');
+      return response.data.id; // Return scoreId for export
     } catch (error) {
       console.error('Error saving score:', error);
       alert('Failed to save score.');
+      throw error;
+    }
+  };
+
+  const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+  const exportScore = async (format) => {
+    try {
+      if (format === 'pdf') {
+        // Create a temporary div for rendering the score
+        const tempDiv = document.createElement('div');
+        tempDiv.style.position = 'absolute';
+        tempDiv.style.left = '-9999px'; // Render off-screen
+        document.body.appendChild(tempDiv);
+
+        // Re-render the score into the temporary div
+        renderScore(tempDiv);
+
+        // Wait for rendering to complete
+        await delay(100); // Small delay to ensure SVG is rendered
+
+        // Extract SVG
+        const svgElement = tempDiv.querySelector('svg');
+        if (!svgElement) {
+          throw new Error('Score SVG not found. Please ensure the score is rendered.');
+        }
+
+        // Ensure SVG has proper dimensions and viewBox
+        svgElement.setAttribute('width', '500px');
+        svgElement.setAttribute('height', '200px');
+        svgElement.setAttribute('viewBox', '0 0 500 200');
+
+        const svgData = svgElement.outerHTML;
+        console.log('SVG Content for PDF Export:', svgData); // Debug: Inspect SVG content
+
+        // Convert SVG to PDF using svg2pdf.js
+        const doc = new jsPDF();
+        const svgWidthPx = 500;
+        const svgHeightPx = 200;
+        const svgAspectRatio = svgWidthPx / svgHeightPx;
+        const pdfWidth = 190; // Width in mm (A4 page width is 210mm, leave margins)
+        const pdfHeight = pdfWidth / svgAspectRatio; // Maintain aspect ratio
+
+        await doc.svg(svgElement, {
+          x: 10,
+          y: 10,
+          width: pdfWidth,
+          height: pdfHeight,
+        });
+
+        const pdfBlob = doc.output('blob');
+
+        // Trigger download to the user's download path
+        const url = window.URL.createObjectURL(pdfBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${title || 'score'}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+
+        // Clean up
+        document.body.removeChild(link);
+        document.body.removeChild(tempDiv);
+        window.URL.revokeObjectURL(url);
+
+        alert('PDF exported successfully!');
+      } else {
+        // Backend export for MusicXML and MP3
+        let currentScoreId = scoreId;
+        if (!currentScoreId) {
+          currentScoreId = await saveScore();
+        }
+
+        // Call export API
+        const response = await axios.post(
+          `${process.env.REACT_APP_BACKEND_URL}/api/scores/${currentScoreId}/export`,
+          { track_id: 0, start: 0, end: notes.length, format }
+        );
+
+        // Fetch the file as a blob
+        const fileUrl = `${process.env.REACT_APP_BACKEND_URL}/${response.data.file_path}`;
+        const fileResponse = await fetch(fileUrl);
+        if (!fileResponse.ok) {
+          throw new Error(`Failed to fetch file: ${fileResponse.statusText}`);
+        }
+        const blob = await fileResponse.blob();
+
+        // Trigger download to the user's download path
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${title || 'score'}.${format === 'musicxml' ? 'xml' : format}`;
+        document.body.appendChild(link);
+        link.click();
+
+        // Clean up
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+
+        alert(`${format.toUpperCase()} exported successfully!`);
+      }
+    } catch (error) {
+      console.error(`Error exporting ${format}:`, error);
+      alert(`Failed to export ${format}: ${error.message}`);
     }
   };
 
@@ -211,6 +321,15 @@ const ScoreEditor = () => {
       </button>
       <button onClick={playScore} style={{ margin: '10px' }}>
         Play Score
+      </button>
+      <button onClick={() => exportScore('musicxml')} style={{ margin: '10px' }}>
+        Export MusicXML
+      </button>
+      <button onClick={() => exportScore('pdf')} style={{ margin: '10px' }}>
+        Export PDF
+      </button>
+      <button onClick={() => exportScore('mp3')} style={{ margin: '10px' }}>
+        Export MP3
       </button>
     </div>
   );

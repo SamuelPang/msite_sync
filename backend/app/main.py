@@ -1,9 +1,11 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.api.scores import router as scores_router
 from app.database import engine
 from app.models import Base
+from app.dependencies import EXPORT_DIR
 from dotenv import load_dotenv
 import os
 import uvicorn
@@ -47,6 +49,9 @@ async def options_scores():
         "Access-Control-Allow-Headers": "Content-Type",
     }
     return Response(status_code=200, headers=headers)
+
+# Mount static directory for exported files
+app.mount("/exports", StaticFiles(directory=EXPORT_DIR), name="exports")
 
 Base.metadata.create_all(bind=engine)
 
