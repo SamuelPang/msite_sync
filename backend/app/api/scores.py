@@ -68,12 +68,15 @@ def export_score(score_id: int, payload: dict, db: Session = Depends(get_db)):
             for track in db_score.tracks
         ]
     }
+    logger.info(f"Total notes in track {track_id}: {len(score_data['tracks'][track_id]['notes'])}")
 
     # Convert to music21 score
     score = ScoreProcessor.create_score(score_data)
+    logger.info(f"Number of elements in full score: {len(list(score.flat.notesAndRests))}")
 
     # Get segment
     segment = ScoreProcessor.get_segment(score, track_id, start, end)
+    logger.info(f"Number of elements in segment: {len(list(segment))}")
 
     # Create a new score with the segment
     export_score = stream.Score()
@@ -81,6 +84,7 @@ def export_score(score_id: int, payload: dict, db: Session = Depends(get_db)):
     for element in segment:
         part.append(element)
     export_score.append(part)
+    logger.info(f"Number of elements in export score: {len(list(export_score.flat.notesAndRests))}")
 
     # Export to requested format
     try:
