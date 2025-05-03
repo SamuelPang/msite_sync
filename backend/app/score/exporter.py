@@ -4,6 +4,10 @@ import os.path
 import tempfile
 import subprocess
 from app.dependencies import EXPORT_DIR
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class ScoreExporter:
     @staticmethod
@@ -22,6 +26,11 @@ class ScoreExporter:
         for part in score.parts:
             part.insert(0, selected_instrument)
 
+        logger.info(f"Number of notes and rests in score: {len(list(score.flat.notesAndRests))}")
+        tempo_markings = score.getElementsByClass('MetronomeMark')
+        if tempo_markings:
+            logger.info(f"Tempo in score: {tempo_markings[0].number} BPM")
+
         with tempfile.NamedTemporaryFile(suffix=".mid", delete=False) as midi_file:
             score.write("midi", midi_file.name)
             midi_file.close()
@@ -37,11 +46,11 @@ class ScoreExporter:
 
                 fluidsynth_cmd = [
                     "fluidsynth",
-                    "-ni",  # No interactive mode
-                    "-g", "1.0",  # Gain
-                    "-F", wav_file,  # Output WAV file
-                    soundfont_path,  # Soundfont
-                    midi_file_full_path  # Input MIDI file
+                    "-ni",
+                    "-g", "1.0",
+                    "-F", wav_file,
+                    soundfont_path,
+                    midi_file_full_path
                 ]
                 result = subprocess.run(
                     fluidsynth_cmd,
@@ -49,10 +58,10 @@ class ScoreExporter:
                     capture_output=True,
                     text=True
                 )
-                print(f"FluidSynth output: {result.stdout}")
-                print(f"FluidSynth error (if any): {result.stderr}")
+                logger.info(f"FluidSynth output: {result.stdout}")
+                if result.stderr:
+                    logger.warning(f"FluidSynth error: {result.stderr}")
 
-                # Step 2: Use ffmpeg to convert WAV to MP3
                 output_filename = f"score_{int(time.time())}.{format}"
                 output_path = os.path.join(EXPORT_DIR, output_filename)
                 # TODO: Check if ffmpeg is installed and available in the PATH
@@ -69,8 +78,9 @@ class ScoreExporter:
                     capture_output=True,
                     text=True
                 )
-                print(f"FFmpeg output: {result.stdout}")
-                print(f"FFmpeg error (if any): {result.stderr}")
+                logger.info(f"FFmpeg output: {result.stdout}")
+                if result.stderr:
+                    logger.warning(f"FFmpeg error: {result.stderr}")
             except subprocess.CalledProcessError as e:
                 raise RuntimeError(f"Failed to convert MIDI to MP3: {e.stderr}")
             finally:
@@ -88,6 +98,7 @@ class ScoreExporter:
         output_filename = f"score_{int(time.time())}.xml"
         output_path = os.path.join(EXPORT_DIR, output_filename)
         score.write("musicxml", output_path)
+        logger.info(f"Exported to MusicXML at: {output_path}")
         return output_path
     #
     # # will be implemented in Frontend

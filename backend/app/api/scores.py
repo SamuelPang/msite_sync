@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from music21 import stream
+from music21 import stream, tempo
 from app import crud, schemas
 from app.database import get_db
 from app.score.processor import ScoreProcessor
@@ -30,7 +30,7 @@ def read_score(score_id: int, db: Session = Depends(get_db)):
 def export_score(score_id: int, payload: dict, db: Session = Depends(get_db)):
     """
     Export a score to MusicXML or MP3 format.
-    Payload: {track_id: int, start: int, end: int, format: str}
+    Payload: {track_id: int, start: int, end: int, format: str, instrument: str, tempo: int}
     Returns: {file_path: str}
     """
     logger.info(f"Exporting score {score_id} with payload: {payload}")
@@ -40,6 +40,7 @@ def export_score(score_id: int, payload: dict, db: Session = Depends(get_db)):
     start = payload.get("start")
     end = payload.get("end")
     format = payload.get("format")
+    tempo_bpm = payload.get("tempo", 120)  # Default to 120 BPM if not provided
 
     if not isinstance(track_id, int) or track_id < 0:
         raise HTTPException(status_code=400, detail="Invalid track_id")
@@ -47,6 +48,8 @@ def export_score(score_id: int, payload: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Invalid start or end")
     if format not in ["musicxml", "mp3"]:
         raise HTTPException(status_code=400, detail="Invalid format")
+    if not isinstance(tempo_bpm, (int, float)) or tempo_bpm < 1:
+        raise HTTPException(status_code=400, detail="Invalid tempo")
 
     # Fetch score
     db_score = crud.get_score(db=db, score_id=score_id)
@@ -86,12 +89,18 @@ def export_score(score_id: int, payload: dict, db: Session = Depends(get_db)):
     export_score.append(part)
     logger.info(f"Number of elements in export score: {len(list(export_score.flat.notesAndRests))}")
 
+    # Add tempo to the score
+    tempo_marking = tempo.MetronomeMark(number=tempo_bpm)
+    export_score.insert(0, tempo_marking)
+    logger.info(f"Applied tempo: {tempo_bpm} BPM")
+
     # Export to requested format
     try:
         if format == "musicxml":
             file_path = ScoreExporter.export_to_musicxml(export_score)
         elif format == "mp3":
-            file_path = ScoreExporter.export_to_audio(export_score, format="mp3")
+            instrument = payload.get("instrument", "piano")
+            file_path = ScoreExporter.export_to_audio(export_score, format="mp3", instrument_name=instrument)
 
         # Return relative path (relative to project root)
         relative_path = os.path.relpath(file_path, os.path.dirname(__file__))
