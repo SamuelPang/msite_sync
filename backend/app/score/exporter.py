@@ -40,7 +40,7 @@ class ScoreExporter:
                 print(f"Processing MIDI file (full path): {midi_file_full_path}")
                 # TODO: Check if FluidSynth is installed and available in the PATH
                 # Step 1: Use FluidSynth to convert MIDI to WAV with a soundfont C:\workspace\aud\soundfonts\GeneralUser GS 1.472
-                soundfont_path = "D:/Program Files/SF2/GeneralUser GS 1.472/GeneralUser GS v1.472.sf2"  # Adjust this path
+                soundfont_path = "C:/workspace/aud/soundfonts/GeneralUser GS 1.472/GeneralUser GS v1.472.sf2"  # Adjust this path
                 if not os.path.exists(soundfont_path):
                     raise FileNotFoundError(f"Soundfont not found at: {soundfont_path}")
 
@@ -66,7 +66,7 @@ class ScoreExporter:
                 output_path = os.path.join(EXPORT_DIR, output_filename)
                 # TODO: Check if ffmpeg is installed and available in the PATH
                 ffmpeg_cmd = [
-                    "D:/Program Files/ffmpeg_full/bin/ffmpeg.exe",  # Adjust this path to your working ffmpeg
+                    "C:/workspace/llm/flutter/workspace/music_backend/ffmpeg_full/bin/ffmpeg.exe",  # Adjust this path to your working ffmpeg
                     "-i", wav_file,
                     "-f", "mp3",
                     "-loglevel", "verbose",
