@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Renderer, Stave, StaveNote, Formatter } from 'vexflow';
 import axios from 'axios';
-import * as Tone from 'tone';
 import { jsPDF } from 'jspdf';
 import { svg2pdf } from 'svg2pdf.js';
 
@@ -162,29 +161,22 @@ const ScoreEditor = () => {
 
   const playScore = async () => {
     try {
-      await Tone.start();
-      const synth = new Tone.Synth().toDestination();
-      const now = Tone.now();
-      let currentTime = now;
+      let currentScoreId = scoreId;
+      if (!currentScoreId) {
+        const scoreData = { title, tracks: [{ notes }] };
+        const response = await axios.post(`${process.env.REACT_APP_BACKEND_URL}/api/scores/`, scoreData);
+        currentScoreId = response.data.id;
+        setScoreId(currentScoreId);
+      }
 
-      // Calculate duration in seconds based on tempo (BPM)
-      // Quarter note duration = (60 / BPM) seconds
-      const quarterNoteDuration = 60 / tempo; // Seconds per quarter note
-      const durationMap = { 'w': 4, 'h': 2, 'q': 1 }; // Quarter lengths
+      const response = await axios.post(
+        `${process.env.REACT_APP_BACKEND_URL}/api/scores/${currentScoreId}/export`,
+        { track_id: 0, start: 0, end: notes.length, format: 'mp3', instrument: selectedInstrument, tempo }
+      );
 
-      notes.forEach((note) => {
-        if (note.pitch === 'r') {
-          // Skip playback for rests, but advance time
-          const noteQuarterLength = durationMap[note.duration] || 1;
-          currentTime += noteQuarterLength * quarterNoteDuration;
-          return;
-        }
-        const tonePitch = note.pitch.split('/')[0].toUpperCase() + note.pitch.split('/')[1];
-        const noteQuarterLength = durationMap[note.duration] || 1;
-        const toneDuration = noteQuarterLength * quarterNoteDuration; // Duration in seconds
-        synth.triggerAttackRelease(tonePitch, toneDuration, currentTime);
-        currentTime += toneDuration;
-      });
+      const fileUrl = `${process.env.REACT_APP_BACKEND_URL}/${response.data.file_path}`;
+      const audio = new Audio(fileUrl);
+      await audio.play();
     } catch (error) {
       console.error('Error playing score:', error);
       alert('Failed to play score.');
