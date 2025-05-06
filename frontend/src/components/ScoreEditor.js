@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Renderer, Stave, StaveNote, Formatter } from 'vexflow';
+import { Renderer, Stave, StaveNote, Formatter, Voice } from 'vexflow';
 import axios from 'axios';
 import { jsPDF } from 'jspdf';
 import { svg2pdf } from 'svg2pdf.js';
@@ -13,11 +13,66 @@ const ScoreEditor = () => {
   const [scoreId, setScoreId] = useState(null);
   const [selectedInstrument, setSelectedInstrument] = useState('piano');
   const [isJianpuMode, setIsJianpuMode] = useState(false);
-  const [tempo, setTempo] = useState(120); // Default tempo: 120 BPM
+  const [tempo, setTempo] = useState(120);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordedAudio, setRecordedAudio] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const audioRef = useRef(null);
 
   useEffect(() => {
     renderScore();
   }, [notes, isJianpuMode]);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorderRef.current.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        setRecordedAudio(audioUrl);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorderRef.current.start();
+      setIsRecording(true);
+    } catch (error) {
+      console.error('Error starting recording:', error);
+      alert('Failed to start recording. Please ensure microphone access is granted.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const togglePlayPause = () => {
+    if (!audioRef.current) return;
+
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current.play().catch(error => {
+        console.error('Error playing audio:', error);
+        alert('Failed to play recorded audio.');
+      });
+      setIsPlaying(true);
+    }
+  };
 
   const parseJianpu = (jianpuStr) => {
     const jianpuMap = { '1': 'c', '2': 'd', '3': 'e', '4': 'f', '5': 'g', '6': 'a', '7': 'b', '0': null };
@@ -66,16 +121,28 @@ const ScoreEditor = () => {
   const renderScore = (targetDiv = scoreRef.current) => {
     if (!targetDiv) return;
 
-    // Clear previous content
     while (targetDiv.firstChild) {
       targetDiv.removeChild(targetDiv.firstChild);
     }
 
+    const pixelsPerQuarterNote = 20;
+    const durationMap = { 'w': 4, 'h': 2, 'q': 1 };
+    const ticksPerQuarterNote = 960;
+    const margin = 10;
+    const minStaveWidth = 400;
+    const clefWidth = 50;
+
+    const totalQuarterNotes = notes.reduce((sum, note) => {
+      return sum + (durationMap[note.duration] || 1);
+    }, 0);
+
+    const staveWidth = Math.max(minStaveWidth, totalQuarterNotes * pixelsPerQuarterNote + clefWidth + 2 * margin);
+
     const renderer = new Renderer(targetDiv, Renderer.Backends.SVG);
-    renderer.resize(500, 200);
+    renderer.resize(staveWidth + 20, 200);
     const context = renderer.getContext();
 
-    const stave = new Stave(10, 40, 400);
+    const stave = new Stave(margin, 40, staveWidth);
     stave.addClef('treble').addTimeSignature('4/4');
     stave.setContext(context).draw();
 
@@ -86,11 +153,28 @@ const ScoreEditor = () => {
           duration: note.duration + (note.pitch === 'r' ? 'r' : ''),
         })
       );
-      Formatter.FormatAndDraw(context, stave, vexNotes);
+
+      const voice = new Voice({
+        num_beats: totalQuarterNotes,
+        beat_value: 4,
+      });
+      voice.addTickables(vexNotes);
+
+      new Formatter().joinVoices([voice]).format([voice], staveWidth - clefWidth - 2 * margin);
+
+      let currentX = 0;
+      vexNotes.forEach(note => {
+        const duration = durationMap[note.duration] || 1;
+        note.setIntrinsicTicks(duration * ticksPerQuarterNote);
+        note.setXShift(currentX);
+        currentX += duration * pixelsPerQuarterNote;
+      });
+
+      voice.draw(context, stave);
     }
 
     if (isJianpuMode && jianpuInput) {
-      context.setFont('Arial', 12).fillText(jianpuInput, 10, 180);
+      context.setFont('Arial', 12).fillText(jianpuInput, margin, 180);
     }
   };
 
@@ -161,20 +245,19 @@ const ScoreEditor = () => {
 
   const playScore = async () => {
     try {
-      let currentScoreId = scoreId;
-      if (!currentScoreId) {
-        const scoreData = { title, tracks: [{ notes }] };
-        const response = await axios.post(`${process.env.REACT_APP_BACKEND_URL}/api/scores/`, scoreData);
-        currentScoreId = response.data.id;
-        setScoreId(currentScoreId);
-      }
+      // Always save the score to ensure the backend has the latest notes
+      const scoreData = { title, tracks: [{ notes }] };
+      const saveResponse = await axios.post(`${process.env.REACT_APP_BACKEND_URL}/api/scores/`, scoreData);
+      const currentScoreId = saveResponse.data.id;
+      setScoreId(currentScoreId);
 
-      const response = await axios.post(
+      // Export the score for playback
+      const exportResponse = await axios.post(
         `${process.env.REACT_APP_BACKEND_URL}/api/scores/${currentScoreId}/export`,
         { track_id: 0, start: 0, end: notes.length, format: 'mp3', instrument: selectedInstrument, tempo }
       );
 
-      const fileUrl = `${process.env.REACT_APP_BACKEND_URL}/${response.data.file_path}`;
+      const fileUrl = `${process.env.REACT_APP_BACKEND_URL}/${exportResponse.data.file_path}`;
       const audio = new Audio(fileUrl);
       await audio.play();
     } catch (error) {
@@ -359,6 +442,29 @@ const ScoreEditor = () => {
           <option value="flute">Flute</option>
           <option value="guitar">Guitar</option>
         </select>
+      </div>
+      <div style={{ marginBottom: '10px' }}>
+        <button
+          onClick={isRecording ? stopRecording : startRecording}
+          style={{ margin: '5px', background: isRecording ? '#f88' : '#fff' }}
+        >
+          {isRecording ? 'Stop Recording' : 'Start Recording'}
+        </button>
+        {recordedAudio && (
+          <div style={{ marginTop: '10px' }}>
+            <audio
+              ref={audioRef}
+              src={recordedAudio}
+              onEnded={() => setIsPlaying(false)}
+            />
+            <button
+              onClick={togglePlayPause}
+              style={{ margin: '5px' }}
+            >
+              {isPlaying ? 'Pause' : 'Play'} Recorded Audio
+            </button>
+          </div>
+        )}
       </div>
       <div
         ref={scoreRef}
