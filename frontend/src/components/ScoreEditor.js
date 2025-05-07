@@ -125,28 +125,38 @@ const ScoreEditor = () => {
       targetDiv.removeChild(targetDiv.firstChild);
     }
 
-    const pixelsPerQuarterNote = 20;
+    const pixelsPerQuarterNote = 20; // Pixels per quarter note for spacing
+    const noteSpacing = 10; // Additional spacing between notes, in pixels
     const durationMap = { 'w': 4, 'h': 2, 'q': 1 };
     const ticksPerQuarterNote = 960;
-    const margin = 10;
-    const minStaveWidth = 400;
-    const clefWidth = 50;
+    const margin = 10; // Left and right margin
+    const minStaveWidth = 200; // Minimum stave width for short scores
+    const clefAndTimeWidth = 80; // Approximate width for clef and time signature
+    const beatsPerMeasure = 4; // 4/4 time signature (4 quarter notes per measure)
 
+    // Calculate total quarter notes
     const totalQuarterNotes = notes.reduce((sum, note) => {
       return sum + (durationMap[note.duration] || 1);
     }, 0);
 
-    const staveWidth = Math.max(minStaveWidth, totalQuarterNotes * pixelsPerQuarterNote + clefWidth + 2 * margin);
+    // Calculate stave width: account for clef/time, notes, and spacing
+    const staveWidth = Math.max(
+      minStaveWidth,
+      clefAndTimeWidth + totalQuarterNotes * pixelsPerQuarterNote + notes.length * noteSpacing + 2 * margin
+    );
 
+    // Initialize renderer
     const renderer = new Renderer(targetDiv, Renderer.Backends.SVG);
-    renderer.resize(staveWidth + 20, 200);
+    renderer.resize(staveWidth + 20, 200); // Add padding
     const context = renderer.getContext();
 
+    // Create stave
     const stave = new Stave(margin, 40, staveWidth);
     stave.addClef('treble').addTimeSignature('4/4');
     stave.setContext(context).draw();
 
     if (notes.length > 0) {
+      // Create VexFlow notes
       const vexNotes = notes.map(note =>
         new StaveNote({
           keys: [note.pitch === 'r' ? 'b/4' : note.pitch],
@@ -154,22 +164,38 @@ const ScoreEditor = () => {
         })
       );
 
+      // Create a Voice to manage notes
       const voice = new Voice({
         num_beats: totalQuarterNotes,
         beat_value: 4,
       });
       voice.addTickables(vexNotes);
 
-      new Formatter().joinVoices([voice]).format([voice], staveWidth - clefWidth - 2 * margin);
+      // Format notes to fit within stave, accounting for clef/time signature
+      new Formatter().joinVoices([voice]).format([voice], staveWidth - clefAndTimeWidth - 2 * margin);
 
+      // Track cumulative duration and position for barlines
+      let cumulativeQuarterNotes = 0;
       let currentX = 0;
-      vexNotes.forEach(note => {
+
+      vexNotes.forEach((note, index) => {
         const duration = durationMap[note.duration] || 1;
         note.setIntrinsicTicks(duration * ticksPerQuarterNote);
-        note.setXShift(currentX);
-        currentX += duration * pixelsPerQuarterNote;
+
+        cumulativeQuarterNotes += duration;
+        currentX += duration * pixelsPerQuarterNote + noteSpacing;
+
+        // Draw barline at measure boundaries (every 4 quarter notes), except for the last note
+        if (index < notes.length - 1 && cumulativeQuarterNotes % beatsPerMeasure === 0) {
+          const barlineX = margin + clefAndTimeWidth + currentX - noteSpacing / 2;
+          context.beginPath();
+          context.moveTo(barlineX, 40); // Top of staff
+          context.lineTo(barlineX, 120); // Bottom of staff
+          context.stroke();
+        }
       });
 
+      // Draw the notes
       voice.draw(context, stave);
     }
 
@@ -245,13 +271,11 @@ const ScoreEditor = () => {
 
   const playScore = async () => {
     try {
-      // Always save the score to ensure the backend has the latest notes
       const scoreData = { title, tracks: [{ notes }] };
       const saveResponse = await axios.post(`${process.env.REACT_APP_BACKEND_URL}/api/scores/`, scoreData);
       const currentScoreId = saveResponse.data.id;
       setScoreId(currentScoreId);
 
-      // Export the score for playback
       const exportResponse = await axios.post(
         `${process.env.REACT_APP_BACKEND_URL}/api/scores/${currentScoreId}/export`,
         { track_id: 0, start: 0, end: notes.length, format: 'mp3', instrument: selectedInstrument, tempo }
