@@ -101,7 +101,11 @@ const ScoreEditor = () => {
         jianpuInput={jianpuInput}
         selectedDuration={selectedDuration}
       />
-      <NoteButtons measures={measures} setMeasures={setMeasures} isJianpuMode={isJianpuMode} />
+      <NoteButtons
+        measures={measures}
+        setMeasures={setMeasures}
+        isJianpuMode={isJianpuMode}
+      />
       <ScoreControls
         measures={measures}
         title={title}

@@ -112,7 +112,7 @@ const NoteInput = ({ isJianpuMode, setIsJianpuMode, jianpuInput, setJianpuInput,
             Half
           </button>
           <button
- sella            onClick={() => setSelectedDuration('q')}
+            onClick={() => setSelectedDuration('q')}
             style={{ margin: '5px', background: selectedDuration === 'q' ? '#ccc' : '#fff' }}
           >
             Quarter
