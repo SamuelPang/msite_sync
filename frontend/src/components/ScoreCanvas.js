@@ -2,7 +2,7 @@ import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { Renderer, Stave, StaveNote, Formatter, Voice, Barline } from 'vexflow';
 import * as Tone from 'tone';
 
-const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInput, selectedDuration, timeSignature }) => {
+const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInput, selectedDuration, timeSignature, currentNoteIndex }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [draggedNote, setDraggedNote] = useState(null);
   const [dragStartY, setDragStartY] = useState(0);
@@ -18,7 +18,6 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     }
   }, [timeSignature]);
 
-  // Initialize synth on component mount
   useEffect(() => {
     synthRef.current = new Tone.Synth().toDestination();
     return () => {
@@ -28,7 +27,6 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     };
   }, []);
 
-  // Function to convert pitch from note/octave to MIDI note name
   const convertToMidiNote = useCallback((pitch) => {
     if (pitch === 'r') return null;
     const [note, octave] = pitch.split('/');
@@ -36,17 +34,14 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     return midiNote;
   }, []);
 
-  // Function to play a single note with fixed eighth note duration
   const playNote = useCallback(async (pitch) => {
-    if (pitch === 'r' || !synthRef.current) return; // Skip rests or if synth not ready
+    if (pitch === 'r' || !synthRef.current) return;
     const midiNote = convertToMidiNote(pitch);
     if (!midiNote) return;
 
     try {
       await Tone.start();
-      // Stop any currently playing note
       synthRef.current.triggerRelease();
-      // Play the new note
       synthRef.current.triggerAttackRelease(midiNote, '8n');
     } catch (error) {
       console.error('Error playing note:', error);
@@ -145,6 +140,7 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
 
     const voices = [];
     const staves = [];
+    let globalNoteIndex = 0;
 
     if (measures.length === 0) {
       const stave = new Stave(margin, 20, staveWidth);
@@ -156,20 +152,32 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
       measures.forEach((measure, measureIndex) => {
         const measureQuarterNotes = measure.notes.reduce((sum, note) => sum + (durationMap[note.duration] || 1), 0);
 
-        let vexNotes = measure.notes.map(note => {
-          return new StaveNote({
+        let vexNotes = measure.notes.map((note, noteIndex) => {
+          const isCurrentNote = globalNoteIndex === currentNoteIndex;
+          globalNoteIndex++;
+          const staveNote = new StaveNote({
             keys: [note.pitch === 'r' ? 'b/4' : note.pitch],
             duration: note.duration + (note.pitch === 'r' ? 'r' : ''),
           });
+          if (isCurrentNote) {
+            staveNote.setStyle({ fillStyle: 'red', strokeStyle: 'red' });
+          }
+          return staveNote;
         });
 
         const remainingBeats = beatsPerMeasure - measureQuarterNotes;
         if (remainingBeats > 0) {
           for (let i = 0; i < remainingBeats; i++) {
-            vexNotes.push(new StaveNote({
+            const isCurrentNote = globalNoteIndex === currentNoteIndex;
+            globalNoteIndex++;
+            const restNote = new StaveNote({
               keys: ['b/4'],
               duration: 'qr',
-            }));
+            });
+            if (isCurrentNote) {
+              restNote.setStyle({ fillStyle: 'red', strokeStyle: 'red' });
+            }
+            vexNotes.push(restNote);
           }
         }
 
@@ -217,7 +225,7 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     if (isJianpuMode && jianpuInput) {
       context.setFont('Arial', 12).fillText(jianpuInput, margin, svgHeight - 10);
     }
-  }, [measures, isJianpuMode, jianpuInput, scoreRef, timeSignature]);
+  }, [measures, isJianpuMode, jianpuInput, scoreRef, timeSignature, currentNoteIndex]);
 
   const getNoteAtPosition = useCallback((x, y) => {
     if (measures.length === 0) return null;
@@ -355,7 +363,6 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
           pitch: newPitch,
         };
         newMeasures[draggedNote.measureIndex] = measure;
-        // Play the new pitch with fixed eighth note duration
         playNote(newPitch);
         return newMeasures;
       });
@@ -367,7 +374,6 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
       setIsDragging(false);
       setDraggedNote(null);
       setDragStartY(0);
-      // Ensure any playing note is stopped
       if (synthRef.current) {
         synthRef.current.triggerRelease();
       }
@@ -454,7 +460,6 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
         newMeasures.push({ notes: [], duration: 0 });
       }
 
-      // Play the newly added note with fixed eighth note duration
       playNote(newPitch);
       return newMeasures;
     });

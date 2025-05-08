@@ -26,6 +26,7 @@ const ScoreEditor = () => {
   const [recordedAudio, setRecordedAudio] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [timeSignature, setTimeSignature] = useState('4/4');
+  const [currentNoteIndex, setCurrentNoteIndex] = useState(-1);
 
   useEffect(() => {
     return () => {
@@ -115,6 +116,7 @@ const ScoreEditor = () => {
         jianpuInput={jianpuInput}
         selectedDuration={selectedDuration}
         timeSignature={timeSignature}
+        currentNoteIndex={currentNoteIndex}
       />
       <NoteButtons
         measures={measures}
@@ -129,6 +131,7 @@ const ScoreEditor = () => {
         selectedInstrument={selectedInstrument}
         tempo={tempo}
         scoreRef={scoreRef}
+        setCurrentNoteIndex={setCurrentNoteIndex}
       />
     </div>
   );

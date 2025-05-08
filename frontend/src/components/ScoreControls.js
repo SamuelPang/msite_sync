@@ -2,8 +2,9 @@ import React from 'react';
 import axios from 'axios';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
+import * as Tone from 'tone';
 
-const ScoreControls = ({ measures, title, scoreId, setScoreId, selectedInstrument, tempo, scoreRef }) => {
+const ScoreControls = ({ measures, title, scoreId, setScoreId, selectedInstrument, tempo, scoreRef, setCurrentNoteIndex }) => {
   const saveScore = async () => {
     try {
       const flatNotes = measures.flatMap(measure => measure.notes);
@@ -32,19 +33,30 @@ const ScoreControls = ({ measures, title, scoreId, setScoreId, selectedInstrumen
         return;
       }
 
-      const scoreData = { title, tracks: [{ notes: flatNotes }] };
-      const saveResponse = await axios.post(`${process.env.REACT_APP_BACKEND_URL}/api/scores/`, scoreData);
-      const currentScoreId = saveResponse.data.id;
-      setScoreId(currentScoreId);
+      await Tone.start();
+      const synth = new Tone.Synth().toDestination();
+      const noteDuration = (60 / tempo / 2) * 1000; // Eighth note duration in milliseconds
 
-      const exportResponse = await axios.post(
-        `${process.env.REACT_APP_BACKEND_URL}/api/scores/${currentScoreId}/export`,
-        { track_id: 0, start: 0, end: flatNotes.length, format: 'mp3', instrument: selectedInstrument, tempo }
-      );
+      flatNotes.forEach((note, index) => {
+        const delay = index * noteDuration;
+        if (note.pitch !== 'r') {
+          const midiNote = note.pitch.split('/').map((part, i) => (i === 0 ? part.toUpperCase() : part)).join('');
+          setTimeout(() => {
+            synth.triggerAttackRelease(midiNote, '8n');
+            setCurrentNoteIndex(index); // Highlight the current note
+          }, delay);
+        } else {
+          setTimeout(() => {
+            setCurrentNoteIndex(index); // Highlight rest
+          }, delay);
+        }
+      });
 
-      const fileUrl = `${process.env.REACT_APP_BACKEND_URL}/${exportResponse.data.file_path}`;
-      const audio = new Audio(fileUrl);
-      await audio.play();
+      // Clear highlight and dispose synth after playback
+      setTimeout(() => {
+        setCurrentNoteIndex(-1);
+        synth.dispose();
+      }, flatNotes.length * noteDuration);
     } catch (error) {
       console.error('Error playing score:', error);
       alert('Failed to play score. Please try again.');
@@ -66,7 +78,6 @@ const ScoreControls = ({ measures, title, scoreId, setScoreId, selectedInstrumen
           tempDiv.style.visibility = 'visible';
           document.body.appendChild(tempDiv);
 
-          // Note: renderScore is not accessible here, so assume it's handled externally
           svgElement = tempDiv.querySelector('svg');
 
           if (!svgElement) {
@@ -74,12 +85,6 @@ const ScoreControls = ({ measures, title, scoreId, setScoreId, selectedInstrumen
             throw new Error('Score SVG not found.');
           }
         }
-
-        console.log('SVG content for PDF:', svgElement.outerHTML);
-        console.log('Clefs in SVG:', svgElement.querySelectorAll('.vf-clef').length);
-        console.log('Time signatures in SVG:', svgElement.querySelectorAll('.vf-timesignature').length);
-        console.log('Notes in SVG:', svgElement.querySelectorAll('.vf-stavenote').length);
-        console.log('Barlines in SVG:', svgElement.querySelectorAll('.vf-stavebarline').length);
 
         const defaultStaveWidth = 300;
         const pixelsPerQuarterNote = 20;
@@ -108,8 +113,6 @@ const ScoreControls = ({ measures, title, scoreId, setScoreId, selectedInstrumen
           scale: 2,
         });
 
-        console.log('Canvas generated:', canvas.toDataURL('image/png'));
-
         const doc = new jsPDF({
           orientation: svgWidth > svgHeight ? 'landscape' : 'portrait',
           unit: 'mm',
@@ -129,8 +132,6 @@ const ScoreControls = ({ measures, title, scoreId, setScoreId, selectedInstrumen
           pdfHeight = maxHeight;
           pdfWidth = pdfHeight * svgAspectRatio;
         }
-
-        console.log(`PDF dimensions: width=${pdfWidth}mm, height=${pdfHeight}mm`);
 
         const imgData = canvas.toDataURL('image/png');
         doc.addImage(
