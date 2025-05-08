@@ -1,7 +1,12 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Renderer, Stave, StaveNote, Formatter, Voice, Barline } from 'vexflow';
 
 const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInput, selectedDuration }) => {
+  // State for dragging
+  const [isDragging, setIsDragging] = useState(false);
+  const [draggedNote, setDraggedNote] = useState(null); // { measureIndex, noteIndex }
+  const [dragStartY, setDragStartY] = useState(0);
+
   const renderScore = useCallback((targetDiv = scoreRef.current) => {
     if (!targetDiv) {
       console.error('Target div for rendering score is not available.');
@@ -118,7 +123,125 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
 
     console.log('VexFlow Version:', Renderer.getVersion ? Renderer.getVersion() : 'Unknown');
     console.log('Rendered SVG:', targetDiv.innerHTML);
-  }, [measures, isJianpuMode, jianpuInput]);
+  }, [measures, isJianpuMode, jianpuInput, scoreRef]);
+
+  const getNoteAtPosition = useCallback((x, totalNotes) => {
+    if (totalNotes === 0) return null;
+    const noteWidth = 400 / (totalNotes + 1);
+    let noteIndex = Math.floor(x / noteWidth);
+    let measureIndex = 0;
+
+    let currentNoteCount = 0;
+    for (let i = 0; i < measures.length; i++) {
+      if (noteIndex < currentNoteCount + measures[i].notes.length) {
+        measureIndex = i;
+        noteIndex -= currentNoteCount;
+        break;
+      }
+      currentNoteCount += measures[i].notes.length;
+    }
+
+    if (noteIndex >= 0 && noteIndex < measures[measureIndex].notes.length) {
+      return { measureIndex, noteIndex };
+    }
+    return null;
+  }, [measures]);
+
+  const calculatePitch = useCallback((y, rect) => {
+    const staveTop = 60;
+    const lineSpacing = 10;
+    const staffHeight = 4 * lineSpacing;
+    const staffBottom = staveTop + staffHeight;
+    const tolerance = 15;
+
+    if (y < staveTop - tolerance || y > staffBottom + tolerance) {
+      console.log(`Y position outside staff bounds (y: ${y}, staveTop: ${staveTop}, staffBottom: ${staffBottom})`);
+      return null;
+    }
+
+    const middleLineY = staveTop + 2 * lineSpacing;
+    const yOffset = middleLineY - y;
+    const halfSteps = Math.round(yOffset / (lineSpacing / 2));
+
+    console.log(`yOffset: ${yOffset}, halfSteps: ${halfSteps}`);
+
+    const pitchNames = ['c', 'd', 'e', 'f', 'g', 'a', 'b'];
+    const referencePitch = { note: 'b', octave: 4 };
+    let noteIndex = pitchNames.indexOf(referencePitch.note);
+    let newOctave = referencePitch.octave;
+
+    noteIndex += halfSteps;
+
+    while (noteIndex >= pitchNames.length) {
+      noteIndex -= pitchNames.length;
+      newOctave += 1;
+    }
+    while (noteIndex < 0) {
+      noteIndex += pitchNames.length;
+      newOctave -= 1;
+    }
+
+    if (newOctave < 3 || newOctave > 5) {
+      console.log(`Invalid octave: ${newOctave}`);
+      return null;
+    }
+
+    return `${pitchNames[noteIndex]}/${newOctave}`;
+  }, []);
+
+  const handleMouseDown = useCallback((event) => {
+    if (isJianpuMode) {
+      console.log('Jianpu mode active, drag ignored.');
+      return;
+    }
+
+    const rect = scoreRef.current.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+    console.log(`Mouse down at (x: ${x}, y: ${y})`);
+
+    const totalNotes = measures.reduce((sum, m) => sum + m.notes.length, 0);
+    const note = getNoteAtPosition(x, totalNotes);
+
+    if (note && measures[note.measureIndex].notes[note.noteIndex].pitch !== 'r') {
+      setIsDragging(true);
+      setDraggedNote(note);
+      setDragStartY(y);
+      console.log(`Dragging note at measure ${note.measureIndex}, note ${note.noteIndex}`);
+    }
+  }, [isJianpuMode, measures, scoreRef, getNoteAtPosition]);
+
+  const handleMouseMove = useCallback((event) => {
+    if (!isDragging || !draggedNote) return;
+
+    const rect = scoreRef.current.getBoundingClientRect();
+    const y = event.clientY - rect.top;
+
+    const newPitch = calculatePitch(y, rect);
+    if (newPitch) {
+      setMeasures(prevMeasures => {
+        const newMeasures = [...prevMeasures];
+        const measure = { ...newMeasures[draggedNote.measureIndex] };
+        measure.notes = [...measure.notes];
+        measure.notes[draggedNote.noteIndex] = {
+          ...measure.notes[draggedNote.noteIndex],
+          pitch: newPitch,
+        };
+        newMeasures[draggedNote.measureIndex] = measure;
+        return newMeasures;
+      });
+    }
+  }, [isDragging, draggedNote, calculatePitch, setMeasures]);
+
+  const handleMouseUp = useCallback(() => {
+    if (isDragging) {
+      setIsDragging(false);
+      setDraggedNote(null);
+      setDragStartY(0);
+      console.log('Drag ended');
+    }
+  }, [isDragging]);
 
   const handleCanvasClick = useCallback((event) => {
     if (isJianpuMode) {
@@ -253,17 +376,28 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     renderScore();
   }, [renderScore]);
 
+  React.useEffect(() => {
+    // Add global mouseup listener to handle drag end outside canvas
+    const handleGlobalMouseUp = () => handleMouseUp();
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, [handleMouseUp]);
+
   return (
     <div
       ref={scoreRef}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
       onClick={handleCanvasClick}
       onContextMenu={handleCanvasContextMenu}
       style={{
-        cursor: 'pointer',
+        cursor: isDragging ? 'grabbing' : 'pointer',
         border: '1px solid #ccc',
         minHeight: '120px',
         width: '100%',
         backgroundColor: '#fff',
+        userSelect: 'none', // Prevent text selection during drag
       }}
     ></div>
   );
