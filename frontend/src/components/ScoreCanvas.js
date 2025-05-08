@@ -1,11 +1,13 @@
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { Renderer, Stave, StaveNote, Formatter, Voice, Barline } from 'vexflow';
+import * as Tone from 'tone';
 
 const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInput, selectedDuration, timeSignature }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [draggedNote, setDraggedNote] = useState(null);
   const [dragStartY, setDragStartY] = useState(0);
   const measuresPerLine = 4;
+  const synthRef = useRef(null);
 
   const getBeatsPerMeasure = useCallback(() => {
     switch (timeSignature) {
@@ -15,6 +17,41 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
       default: return 4;
     }
   }, [timeSignature]);
+
+  // Initialize synth on component mount
+  useEffect(() => {
+    synthRef.current = new Tone.Synth().toDestination();
+    return () => {
+      if (synthRef.current) {
+        synthRef.current.dispose();
+      }
+    };
+  }, []);
+
+  // Function to convert pitch from note/octave to MIDI note name
+  const convertToMidiNote = useCallback((pitch) => {
+    if (pitch === 'r') return null;
+    const [note, octave] = pitch.split('/');
+    const midiNote = `${note.toUpperCase()}${octave}`;
+    return midiNote;
+  }, []);
+
+  // Function to play a single note with fixed eighth note duration
+  const playNote = useCallback(async (pitch) => {
+    if (pitch === 'r' || !synthRef.current) return; // Skip rests or if synth not ready
+    const midiNote = convertToMidiNote(pitch);
+    if (!midiNote) return;
+
+    try {
+      await Tone.start();
+      // Stop any currently playing note
+      synthRef.current.triggerRelease();
+      // Play the new note
+      synthRef.current.triggerAttackRelease(midiNote, '8n');
+    } catch (error) {
+      console.error('Error playing note:', error);
+    }
+  }, [convertToMidiNote]);
 
   useEffect(() => {
     const beatsPerMeasure = getBeatsPerMeasure();
@@ -86,7 +123,6 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     const beatsPerMeasure = getBeatsPerMeasure();
     const staveHeight = 100;
 
-    // 计算每个小节的宽度，并取最大值作为统一宽度
     let maxStaveWidth = defaultStaveWidth;
     measures.forEach(measure => {
       const measureQuarterNotes = measure.notes.reduce((sum, note) => sum + (durationMap[note.duration] || 1), 0);
@@ -119,10 +155,8 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     } else {
       measures.forEach((measure, measureIndex) => {
         const measureQuarterNotes = measure.notes.reduce((sum, note) => sum + (durationMap[note.duration] || 1), 0);
-        console.log(`Measure ${measureIndex} quarter notes: ${measureQuarterNotes}`);
 
         let vexNotes = measure.notes.map(note => {
-          console.log('Creating note:', note);
           return new StaveNote({
             keys: [note.pitch === 'r' ? 'b/4' : note.pitch],
             duration: note.duration + (note.pitch === 'r' ? 'r' : ''),
@@ -131,7 +165,6 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
 
         const remainingBeats = beatsPerMeasure - measureQuarterNotes;
         if (remainingBeats > 0) {
-          console.log(`Adding ${remainingBeats} quarter rests to measure ${measureIndex}`);
           for (let i = 0; i < remainingBeats; i++) {
             vexNotes.push(new StaveNote({
               keys: ['b/4'],
@@ -139,8 +172,6 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
             }));
           }
         }
-
-        console.log(`VexNotes for measure ${measureIndex}:`, vexNotes.map(n => n.attrs));
 
         const lineIndex = Math.floor(measureIndex / measuresPerLine);
         const staveIndexInLine = measureIndex % measuresPerLine;
@@ -166,7 +197,6 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     staves.forEach((stave, index) => {
       stave.draw();
       if (index < staves.length - 1 && measures.length > 0) {
-        console.log(`Drawing barline after measure ${index}`);
         const barline = new Barline(Barline.type.SINGLE);
         barline.setContext(context).setStave(stave);
         barline.draw();
@@ -177,7 +207,6 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
       try {
         new Formatter().joinVoices(voices).format(voices, staveWidth - clefAndTimeWidth - 2 * margin);
         voices.forEach((voice, index) => {
-          console.log(`Drawing voice for measure ${index}`);
           voice.draw(context, staves[index]);
         });
       } catch (error) {
@@ -188,9 +217,6 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     if (isJianpuMode && jianpuInput) {
       context.setFont('Arial', 12).fillText(jianpuInput, margin, svgHeight - 10);
     }
-
-    console.log('VexFlow Version:', Renderer.getVersion ? Renderer.getVersion() : 'Unknown');
-    console.log('Rendered SVG:', targetDiv.innerHTML);
   }, [measures, isJianpuMode, jianpuInput, scoreRef, timeSignature]);
 
   const getNoteAtPosition = useCallback((x, y) => {
@@ -205,7 +231,6 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     const staffHeight = 4 * lineSpacing;
     const tolerance = 15;
 
-    // 计算最大小节宽度（与 renderScore 保持一致）
     let maxStaveWidth = defaultStaveWidth;
     const durationMap = { 'w': 4, 'h': 2, 'q': 1 };
     measures.forEach(measure => {
@@ -230,7 +255,6 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     }
 
     if (lineIndex === -1) {
-      console.log(`Y coordinate ${y} outside any stave's vertical range`);
       return null;
     }
 
@@ -239,13 +263,11 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     const measureIndex = lineIndex * measuresPerLine + staveIndexInLine;
 
     if (measureIndex < 0 || measureIndex >= measures.length) {
-      console.log(`Invalid measure index: ${measureIndex}`);
       return null;
     }
 
     const measure = measures[measureIndex];
     if (!measure.notes.length) {
-      console.log(`Measure ${measureIndex} has no notes`);
       return null;
     }
 
@@ -255,11 +277,9 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     const noteIndex = Math.floor((x - staveX - clefAndTimeWidth) / noteWidth);
 
     if (noteIndex >= 0 && noteIndex < measure.notes.length) {
-      console.log(`Selected note: measure ${measureIndex}, note ${noteIndex}`);
       return { measureIndex, noteIndex };
     }
 
-    console.log(`No note found at x: ${x}, measure: ${measureIndex}, noteIndex: ${noteIndex}`);
     return null;
   }, [measures]);
 
@@ -271,15 +291,12 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     const tolerance = 15;
 
     if (y < staveTop - tolerance || y > staffBottom + tolerance) {
-      console.log(`Y position outside staff bounds (y: ${y}, staveTop: ${staveTop}, staffBottom: ${staffBottom})`);
       return null;
     }
 
     const middleLineY = staveTop + 2 * lineSpacing;
     const yOffset = middleLineY - y;
     const halfSteps = Math.round(yOffset / (lineSpacing / 2));
-
-    console.log(`yOffset: ${yOffset}, halfSteps: ${halfSteps}`);
 
     const pitchNames = ['c', 'd', 'e', 'f', 'g', 'a', 'b'];
     const referencePitch = { note: 'b', octave: 4 };
@@ -298,7 +315,6 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     }
 
     if (newOctave < 3 || newOctave > 5) {
-      console.log(`Invalid octave: ${newOctave}`);
       return null;
     }
 
@@ -307,7 +323,6 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
 
   const handleMouseDown = useCallback((event) => {
     if (isJianpuMode) {
-      console.log('Jianpu mode active, drag ignored.');
       return;
     }
 
@@ -315,16 +330,11 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
 
-    console.log(`Mouse down at (x: ${x}, y: ${y})`);
-
     const note = getNoteAtPosition(x, y);
     if (note && measures[note.measureIndex].notes[note.noteIndex].pitch !== 'r') {
       setIsDragging(true);
       setDraggedNote(note);
       setDragStartY(y);
-      console.log(`Dragging note at measure ${note.measureIndex}, note ${note.noteIndex}`);
-    } else {
-      console.log('No valid note selected for dragging');
     }
   }, [isJianpuMode, measures, scoreRef, getNoteAtPosition]);
 
@@ -345,31 +355,33 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
           pitch: newPitch,
         };
         newMeasures[draggedNote.measureIndex] = measure;
+        // Play the new pitch with fixed eighth note duration
+        playNote(newPitch);
         return newMeasures;
       });
     }
-  }, [isDragging, draggedNote, calculatePitch, setMeasures]);
+  }, [isDragging, draggedNote, calculatePitch, setMeasures, playNote]);
 
   const handleMouseUp = useCallback(() => {
     if (isDragging) {
       setIsDragging(false);
       setDraggedNote(null);
       setDragStartY(0);
-      console.log('Drag ended');
+      // Ensure any playing note is stopped
+      if (synthRef.current) {
+        synthRef.current.triggerRelease();
+      }
     }
   }, [isDragging]);
 
   const handleCanvasClick = useCallback((event) => {
     if (isJianpuMode) {
-      console.log('Jianpu mode active, click ignored.');
       return;
     }
 
     const rect = scoreRef.current.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
-
-    console.log(`Click at (x: ${x}, y: ${y})`);
 
     const staveTop = 60;
     const lineSpacing = 10;
@@ -378,15 +390,12 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     const tolerance = 15;
 
     if (y < staveTop - tolerance || y > staffBottom + tolerance) {
-      console.log(`Click outside staff bounds (y: ${y}, staveTop: ${staveTop}, staffBottom: ${staffBottom})`);
       return;
     }
 
     const middleLineY = staveTop + 2 * lineSpacing;
     const yOffset = middleLineY - y;
     const halfSteps = Math.round(yOffset / (lineSpacing / 2));
-
-    console.log(`yOffset: ${yOffset}, halfSteps: ${halfSteps}`);
 
     const pitchNames = ['c', 'd', 'e', 'f', 'g', 'a', 'b'];
     const referencePitch = { note: 'b', octave: 4 };
@@ -405,23 +414,17 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     }
 
     if (newOctave < 3 || newOctave > 5) {
-      console.log(`Invalid octave: ${newOctave}`);
       return;
     }
 
     const newPitch = `${pitchNames[noteIndex]}/${newOctave}`;
-    console.log(`Calculated pitch: ${newPitch}, duration: ${selectedDuration}`);
-
     const newNote = { pitch: newPitch, duration: selectedDuration };
     const durationMap = { 'w': 4, 'h': 2, 'q': 1 };
     const noteDuration = durationMap[selectedDuration] || 1;
     const beatsPerMeasure = getBeatsPerMeasure();
 
     setMeasures(prevMeasures => {
-      console.log('Previous measures:', JSON.stringify(prevMeasures, null, 2));
-
       if (prevMeasures.length >= 100) {
-        console.log('Maximum number of measures reached.');
         alert('Maximum number of measures reached.');
         return prevMeasures;
       }
@@ -434,8 +437,6 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
       } else {
         lastMeasure = { notes: [], duration: 0 };
       }
-
-      console.log('Last measure before update:', JSON.stringify(lastMeasure, null, 2));
 
       if (lastMeasure.duration + noteDuration <= beatsPerMeasure) {
         lastMeasure.notes.push(newNote);
@@ -450,14 +451,14 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
       }
 
       if (newMeasures.length % measuresPerLine === 0 && newMeasures[newMeasures.length - 1].duration >= beatsPerMeasure) {
-        console.log('Fourth measure filled, adding new empty measure for new line');
         newMeasures.push({ notes: [], duration: 0 });
       }
 
-      console.log('New measures after update:', JSON.stringify(newMeasures, null, 2));
+      // Play the newly added note with fixed eighth note duration
+      playNote(newPitch);
       return newMeasures;
     });
-  }, [isJianpuMode, selectedDuration, setMeasures, scoreRef, timeSignature]);
+  }, [isJianpuMode, selectedDuration, setMeasures, scoreRef, timeSignature, playNote]);
 
   const handleCanvasContextMenu = useCallback((event) => {
     event.preventDefault();
