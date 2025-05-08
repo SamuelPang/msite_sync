@@ -8,6 +8,7 @@ const NoteInput = ({ isJianpuMode, setIsJianpuMode, jianpuInput, setJianpuInput,
     const durationMap = { '': 'q', '-': 'h', '--': 'w' };
     const notesArray = jianpuStr.trim().split(/\s+/).slice(0, 1000);
     const convertedNotes = [];
+    const measuresPerLine = 4; // 每行小节数
 
     notesArray.forEach(noteStr => {
       if (!noteStr) return;
@@ -57,10 +58,23 @@ const NoteInput = ({ isJianpuMode, setIsJianpuMode, jianpuInput, setJianpuInput,
           currentMeasure.duration = leftoverDuration;
         }
       }
+
+      // 检查是否是第六个小节且已满
+      if (newMeasures.length % measuresPerLine === 0 && currentMeasure.duration >= beatsPerMeasure && newMeasures.length < 100) {
+        console.log('Sixth measure filled in Jianpu, adding new empty measure');
+        newMeasures.push(currentMeasure);
+        currentMeasure = { notes: [], duration: 0 };
+      }
     });
 
     if (currentMeasure.notes.length > 0 && newMeasures.length < 100) {
       newMeasures.push(currentMeasure);
+    }
+
+    // 如果最后一个小节是第六个且已满，添加空小节
+    if (newMeasures.length % measuresPerLine === 0 && newMeasures[newMeasures.length - 1].duration >= beatsPerMeasure && newMeasures.length < 100) {
+      console.log('Last measure is sixth and filled, adding new empty measure');
+      newMeasures.push({ notes: [], duration: 0 });
     }
 
     return newMeasures;

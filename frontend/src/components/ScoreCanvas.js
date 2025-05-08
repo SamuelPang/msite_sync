@@ -1,12 +1,11 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { Renderer, Stave, StaveNote, Formatter, Voice, Barline } from 'vexflow';
 
 const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInput, selectedDuration }) => {
-  // State for dragging
   const [isDragging, setIsDragging] = useState(false);
-  const [draggedNote, setDraggedNote] = useState(null); // { measureIndex, noteIndex }
+  const [draggedNote, setDraggedNote] = useState(null);
   const [dragStartY, setDragStartY] = useState(0);
-
+  const measuresPerLine = 4; // 修改为每行6个小节
   const renderScore = useCallback((targetDiv = scoreRef.current) => {
     if (!targetDiv) {
       console.error('Target div for rendering score is not available.');
@@ -25,19 +24,19 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     const clefAndTimeWidth = 50;
     const beatsPerMeasure = 4;
     const staveHeight = 100;
-    const measuresPerLine = 4;
 
-    const totalQuarterNotes = measures.reduce((sum, measure) => {
-      return sum + measure.notes.reduce((mSum, note) => mSum + (durationMap[note.duration] || 1), 0);
-    }, 0);
-    const totalNotes = measures.reduce((sum, measure) => sum + measure.notes.length, 0);
-    const staveWidth = Math.max(
-      defaultStaveWidth,
-      clefAndTimeWidth + totalQuarterNotes * pixelsPerQuarterNote + totalNotes * noteSpacing + 2 * margin
-    );
+    // 计算每个小节的宽度，并取最大值作为统一宽度
+    let maxStaveWidth = defaultStaveWidth;
+    measures.forEach(measure => {
+      const measureQuarterNotes = measure.notes.reduce((sum, note) => sum + (durationMap[note.duration] || 1), 0);
+      const measureNotes = measure.notes.length;
+      const measureWidth = clefAndTimeWidth + measureQuarterNotes * pixelsPerQuarterNote + measureNotes * noteSpacing + 2 * margin;
+      maxStaveWidth = Math.max(maxStaveWidth, measureWidth);
+    });
 
-    const numLines = Math.ceil(measures.length / measuresPerLine);
-    const svgWidth = staveWidth * Math.min(measures.length, measuresPerLine);
+    const staveWidth = maxStaveWidth;
+    const numLines = Math.ceil(Math.max(measures.length, 1) / measuresPerLine);
+    const svgWidth = staveWidth * Math.min(Math.max(measures.length, 1), measuresPerLine);
     const svgHeight = staveHeight * numLines + 20;
 
     const renderer = new Renderer(targetDiv, Renderer.Backends.SVG);
@@ -50,54 +49,62 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     const voices = [];
     const staves = [];
 
-    measures.forEach((measure, measureIndex) => {
-      const measureQuarterNotes = measure.notes.reduce((sum, note) => sum + (durationMap[note.duration] || 1), 0);
-      console.log(`Measure ${measureIndex} quarter notes: ${measureQuarterNotes}`);
-
-      let vexNotes = measure.notes.map(note => {
-        console.log('Creating note:', note);
-        return new StaveNote({
-          keys: [note.pitch === 'r' ? 'b/4' : note.pitch],
-          duration: note.duration + (note.pitch === 'r' ? 'r' : ''),
-        });
-      });
-
-      const remainingBeats = beatsPerMeasure - measureQuarterNotes;
-      if (remainingBeats > 0) {
-        console.log(`Adding ${remainingBeats} quarter rests to measure ${measureIndex}`);
-        for (let i = 0; i < remainingBeats; i++) {
-          vexNotes.push(new StaveNote({
-            keys: ['b/4'],
-            duration: 'qr',
-          }));
-        }
-      }
-
-      console.log(`VexNotes for measure ${measureIndex}:`, vexNotes.map(n => n.attrs));
-
-      const lineIndex = Math.floor(measureIndex / measuresPerLine);
-      const staveIndexInLine = measureIndex % measuresPerLine;
-      const x = margin + staveIndexInLine * staveWidth;
-      const y = 20 + lineIndex * staveHeight;
-
-      const stave = new Stave(x, y, staveWidth);
-      if (measureIndex === 0) {
-        stave.addClef('treble').addTimeSignature('4/4');
-      }
+    if (measures.length === 0) {
+      const stave = new Stave(margin, 20, staveWidth);
+      stave.addClef('treble').addTimeSignature('4/4');
       stave.setContext(context);
+      stave.draw();
       staves.push(stave);
+    } else {
+      measures.forEach((measure, measureIndex) => {
+        const measureQuarterNotes = measure.notes.reduce((sum, note) => sum + (durationMap[note.duration] || 1), 0);
+        console.log(`Measure ${measureIndex} quarter notes: ${measureQuarterNotes}`);
 
-      const voice = new Voice({
-        num_beats: beatsPerMeasure,
-        beat_value: 4,
+        let vexNotes = measure.notes.map(note => {
+          console.log('Creating note:', note);
+          return new StaveNote({
+            keys: [note.pitch === 'r' ? 'b/4' : note.pitch],
+            duration: note.duration + (note.pitch === 'r' ? 'r' : ''),
+          });
+        });
+
+        const remainingBeats = beatsPerMeasure - measureQuarterNotes;
+        if (remainingBeats > 0) {
+          console.log(`Adding ${remainingBeats} quarter rests to measure ${measureIndex}`);
+          for (let i = 0; i < remainingBeats; i++) {
+            vexNotes.push(new StaveNote({
+              keys: ['b/4'],
+              duration: 'qr',
+            }));
+          }
+        }
+
+        console.log(`VexNotes for measure ${measureIndex}:`, vexNotes.map(n => n.attrs));
+
+        const lineIndex = Math.floor(measureIndex / measuresPerLine);
+        const staveIndexInLine = measureIndex % measuresPerLine;
+        const x = margin + staveIndexInLine * staveWidth;
+        const y = 20 + lineIndex * staveHeight;
+
+        const stave = new Stave(x, y, staveWidth);
+        if (measureIndex === 0 || (measureIndex % measuresPerLine === 0)) {
+          stave.addClef('treble').addTimeSignature('4/4');
+        }
+        stave.setContext(context);
+        staves.push(stave);
+
+        const voice = new Voice({
+          num_beats: beatsPerMeasure,
+          beat_value: 4,
+        });
+        voice.addTickables(vexNotes);
+        voices.push(voice);
       });
-      voice.addTickables(vexNotes);
-      voices.push(voice);
-    });
+    }
 
     staves.forEach((stave, index) => {
       stave.draw();
-      if (index < staves.length - 1) {
+      if (index < staves.length - 1 && measures.length > 0) {
         console.log(`Drawing barline after measure ${index}`);
         const barline = new Barline(Barline.type.SINGLE);
         barline.setContext(context).setStave(stave);
@@ -125,25 +132,52 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     console.log('Rendered SVG:', targetDiv.innerHTML);
   }, [measures, isJianpuMode, jianpuInput, scoreRef]);
 
-  const getNoteAtPosition = useCallback((x, totalNotes) => {
-    if (totalNotes === 0) return null;
-    const noteWidth = 400 / (totalNotes + 1);
-    let noteIndex = Math.floor(x / noteWidth);
-    let measureIndex = 0;
+  const getNoteAtPosition = useCallback((x, y) => {
+    if (measures.length === 0) return null;
 
-    let currentNoteCount = 0;
-    for (let i = 0; i < measures.length; i++) {
-      if (noteIndex < currentNoteCount + measures[i].notes.length) {
-        measureIndex = i;
-        noteIndex -= currentNoteCount;
-        break;
-      }
-      currentNoteCount += measures[i].notes.length;
+    const defaultStaveWidth = 300;
+    const margin = 10;
+    const clefAndTimeWidth = 50;
+    const staveHeight = 100;
+
+    // 计算最大小节宽度（与 renderScore 保持一致）
+    let maxStaveWidth = defaultStaveWidth;
+    const durationMap = { 'w': 4, 'h': 2, 'q': 1 };
+    measures.forEach(measure => {
+      const measureQuarterNotes = measure.notes.reduce((sum, note) => sum + (durationMap[note.duration] || 1), 0);
+      const measureNotes = measure.notes.length;
+      const measureWidth = clefAndTimeWidth + measureQuarterNotes * 20 + measureNotes * 10 + 2 * margin;
+      maxStaveWidth = Math.max(maxStaveWidth, measureWidth);
+    });
+
+    const staveWidth = maxStaveWidth;
+
+    const lineIndex = Math.floor(y / staveHeight);
+    const xInCanvas = x - margin;
+
+    const staveIndexInLine = Math.floor(xInCanvas / staveWidth);
+    const measureIndex = lineIndex * measuresPerLine + staveIndexInLine;
+
+    if (measureIndex < 0 || measureIndex >= measures.length) {
+      console.log(`Invalid measure index: ${measureIndex}`);
+      return null;
     }
 
-    if (noteIndex >= 0 && noteIndex < measures[measureIndex].notes.length) {
+    const measure = measures[measureIndex];
+    if (!measure.notes.length) return null;
+
+    const staveX = margin + (measureIndex % measuresPerLine) * staveWidth;
+    const usableWidth = staveWidth - clefAndTimeWidth - 2 * margin;
+
+    const noteWidth = usableWidth / (measure.notes.length || 1);
+    const noteIndex = Math.floor((x - staveX - clefAndTimeWidth) / noteWidth);
+
+    if (noteIndex >= 0 && noteIndex < measure.notes.length) {
+      console.log(`Selected note: measure ${measureIndex}, note ${noteIndex}`);
       return { measureIndex, noteIndex };
     }
+
+    console.log(`No note found at x: ${x}, measure: ${measureIndex}, noteIndex: ${noteIndex}`);
     return null;
   }, [measures]);
 
@@ -201,14 +235,14 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
 
     console.log(`Mouse down at (x: ${x}, y: ${y})`);
 
-    const totalNotes = measures.reduce((sum, m) => sum + m.notes.length, 0);
-    const note = getNoteAtPosition(x, totalNotes);
-
+    const note = getNoteAtPosition(x, y);
     if (note && measures[note.measureIndex].notes[note.noteIndex].pitch !== 'r') {
       setIsDragging(true);
       setDraggedNote(note);
       setDragStartY(y);
       console.log(`Dragging note at measure ${note.measureIndex}, note ${note.noteIndex}`);
+    } else {
+      console.log('No valid note selected for dragging');
     }
   }, [isJianpuMode, measures, scoreRef, getNoteAtPosition]);
 
@@ -333,6 +367,12 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
         newMeasures.push({ notes: [newNote], duration: noteDuration });
       }
 
+      // 检查是否是第六个小节且已满
+      if (newMeasures.length % measuresPerLine === 0 && newMeasures[newMeasures.length - 1].duration >= beatsPerMeasure) {
+        console.log('Sixth measure filled, adding new empty measure for new line');
+        newMeasures.push({ notes: [], duration: 0 });
+      }
+
       console.log('New measures after update:', JSON.stringify(newMeasures, null, 2));
       return newMeasures;
     });
@@ -343,41 +383,28 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     if (isJianpuMode) return;
     const rect = scoreRef.current.getBoundingClientRect();
     const x = event.clientX - rect.left;
-    const totalNotes = measures.reduce((sum, m) => sum + m.notes.length, 0);
-    if (totalNotes === 0) return;
+    const y = event.clientY - rect.top;
 
-    const noteWidth = 400 / (totalNotes + 1);
-    let noteIndex = Math.floor(x / noteWidth);
-    let measureIndex = 0;
+    const note = getNoteAtPosition(x, y);
+    if (!note) return;
 
-    let currentNoteCount = 0;
-    for (let i = 0; i < measures.length; i++) {
-      if (noteIndex < currentNoteCount + measures[i].notes.length) {
-        measureIndex = i;
-        noteIndex -= currentNoteCount;
-        break;
-      }
-      currentNoteCount += measures[i].notes.length;
+    setMeasures(prevMeasures => {
+      const newMeasures = [...prevMeasures];
+      const measure = { ...newMeasures[note.measureIndex] };
+      measure.notes = measure.notes.filter((_, i) => i !== note.noteIndex);
+      measure.duration = measure.notes.reduce((sum, note) => sum + ({ 'w': 4, 'h': 2, 'q': 1 }[note.duration] || 1), 0);
+      newMeasures[note.measureIndex] = measure;
+      return newMeasures.filter(m => m.notes.length > 0 || m === newMeasures[newMeasures.length - 1]);
+    });
+  }, [isJianpuMode, measures, setMeasures, scoreRef, getNoteAtPosition]);
+
+  useEffect(() => {
+    if (scoreRef.current) {
+      renderScore();
     }
-
-    if (noteIndex >= 0 && noteIndex < measures[measureIndex].notes.length) {
-      setMeasures(prevMeasures => {
-        const newMeasures = [...prevMeasures];
-        const measure = { ...newMeasures[measureIndex] };
-        measure.notes = measure.notes.filter((_, i) => i !== noteIndex);
-        measure.duration = measure.notes.reduce((sum, note) => sum + ({ 'w': 4, 'h': 2, 'q': 1 }[note.duration] || 1), 0);
-        newMeasures[measureIndex] = measure;
-        return newMeasures.filter(m => m.notes.length > 0);
-      });
-    }
-  }, [isJianpuMode, measures, setMeasures, scoreRef]);
-
-  React.useEffect(() => {
-    renderScore();
   }, [renderScore]);
 
-  React.useEffect(() => {
-    // Add global mouseup listener to handle drag end outside canvas
+  useEffect(() => {
     const handleGlobalMouseUp = () => handleMouseUp();
     window.addEventListener('mouseup', handleGlobalMouseUp);
     return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
@@ -397,7 +424,7 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
         minHeight: '120px',
         width: '100%',
         backgroundColor: '#fff',
-        userSelect: 'none', // Prevent text selection during drag
+        userSelect: 'none',
       }}
     ></div>
   );
