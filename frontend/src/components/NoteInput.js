@@ -1,6 +1,15 @@
 import React, { useCallback } from 'react';
 
-const NoteInput = ({ isJianpuMode, setIsJianpuMode, jianpuInput, setJianpuInput, selectedDuration, setSelectedDuration, setMeasures }) => {
+const NoteInput = ({ isJianpuMode, setIsJianpuMode, jianpuInput, setJianpuInput, selectedDuration, setSelectedDuration, setMeasures, timeSignature }) => {
+  const getBeatsPerMeasure = useCallback(() => {
+    switch (timeSignature) {
+      case '2/4': return 2;
+      case '3/4': return 3;
+      case '4/4': return 4;
+      default: return 4;
+    }
+  }, [timeSignature]);
+
   const parseJianpu = useCallback((jianpuStr) => {
     if (!jianpuStr.trim()) return [];
 
@@ -33,7 +42,7 @@ const NoteInput = ({ isJianpuMode, setIsJianpuMode, jianpuInput, setJianpuInput,
     });
 
     const durationMapForGrouping = { 'w': 4, 'h': 2, 'q': 1 };
-    const beatsPerMeasure = 4;
+    const beatsPerMeasure = getBeatsPerMeasure();
     const newMeasures = [];
     let currentMeasure = { notes: [], duration: 0 };
 
@@ -58,13 +67,6 @@ const NoteInput = ({ isJianpuMode, setIsJianpuMode, jianpuInput, setJianpuInput,
           currentMeasure.duration = leftoverDuration;
         }
       }
-
-      // 检查是否是第六个小节且已满
-      if (newMeasures.length % measuresPerLine === 0 && currentMeasure.duration >= beatsPerMeasure && newMeasures.length < 100) {
-        console.log('Sixth measure filled in Jianpu, adding new empty measure');
-        newMeasures.push(currentMeasure);
-        currentMeasure = { notes: [], duration: 0 };
-      }
     });
 
     if (currentMeasure.notes.length > 0 && newMeasures.length < 100) {
@@ -73,12 +75,12 @@ const NoteInput = ({ isJianpuMode, setIsJianpuMode, jianpuInput, setJianpuInput,
 
     // 如果最后一个小节是第六个且已满，添加空小节
     if (newMeasures.length % measuresPerLine === 0 && newMeasures[newMeasures.length - 1].duration >= beatsPerMeasure && newMeasures.length < 100) {
-      console.log('Last measure is sixth and filled, adding new empty measure');
+      console.log('Last measure is full and filled, adding new empty measure');
       newMeasures.push({ notes: [], duration: 0 });
     }
 
     return newMeasures;
-  }, []);
+  }, [timeSignature]);
 
   const getDurationForQuarterNotes = (quarterNotes) => {
     const map = { 4: 'w', 2: 'h', 1: 'q' };

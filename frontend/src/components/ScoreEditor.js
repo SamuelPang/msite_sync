@@ -25,6 +25,7 @@ const ScoreEditor = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [recordedAudio, setRecordedAudio] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [timeSignature, setTimeSignature] = useState('4/4');
 
   useEffect(() => {
     return () => {
@@ -47,6 +48,18 @@ const ScoreEditor = () => {
         placeholder="Score Title"
         style={{ marginBottom: '10px' }}
       />
+      <div style={{ marginBottom: '10px' }}>
+        <label>Time Signature: </label>
+        <select
+          value={timeSignature}
+          onChange={(e) => setTimeSignature(e.target.value)}
+          style={{ marginLeft: '5px' }}
+        >
+          <option value="2/4">2/4</option>
+          <option value="3/4">3/4</option>
+          <option value="4/4">4/4</option>
+        </select>
+      </div>
       <NoteInput
         isJianpuMode={isJianpuMode}
         setIsJianpuMode={setIsJianpuMode}
@@ -55,6 +68,7 @@ const ScoreEditor = () => {
         selectedDuration={selectedDuration}
         setSelectedDuration={setSelectedDuration}
         setMeasures={setMeasures}
+        timeSignature={timeSignature}
       />
       <div style={{ marginBottom: '10px' }}>
         <label>Tempo (BPM): </label>
@@ -100,6 +114,7 @@ const ScoreEditor = () => {
         isJianpuMode={isJianpuMode}
         jianpuInput={jianpuInput}
         selectedDuration={selectedDuration}
+        timeSignature={timeSignature}
       />
       <NoteButtons
         measures={measures}

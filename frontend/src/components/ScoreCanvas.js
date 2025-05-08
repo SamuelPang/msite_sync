@@ -1,11 +1,72 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import { Renderer, Stave, StaveNote, Formatter, Voice, Barline } from 'vexflow';
 
-const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInput, selectedDuration }) => {
+const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInput, selectedDuration, timeSignature }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [draggedNote, setDraggedNote] = useState(null);
   const [dragStartY, setDragStartY] = useState(0);
-  const measuresPerLine = 4; // 修改为每行6个小节
+  const measuresPerLine = 4;
+
+  const getBeatsPerMeasure = useCallback(() => {
+    switch (timeSignature) {
+      case '2/4': return 2;
+      case '3/4': return 3;
+      case '4/4': return 4;
+      default: return 4;
+    }
+  }, [timeSignature]);
+
+  useEffect(() => {
+    const beatsPerMeasure = getBeatsPerMeasure();
+    const durationMap = { 'w': 4, 'h': 2, 'q': 1 };
+
+    const reorganizeMeasures = () => {
+      const allNotes = measures.flatMap(measure => measure.notes);
+      const newMeasures = [];
+      let currentMeasure = { notes: [], duration: 0 };
+
+      allNotes.forEach(note => {
+        const noteDuration = durationMap[note.duration] || 1;
+        if (currentMeasure.duration + noteDuration <= beatsPerMeasure) {
+          currentMeasure.notes.push(note);
+          currentMeasure.duration += noteDuration;
+        } else {
+          const remainingDuration = beatsPerMeasure - currentMeasure.duration;
+          if (remainingDuration > 0) {
+            currentMeasure.notes.push({ ...note, duration: getDurationForQuarterNotes(remainingDuration) });
+            currentMeasure.duration = beatsPerMeasure;
+          }
+          newMeasures.push(currentMeasure);
+          currentMeasure = { notes: [], duration: 0 };
+          const leftoverDuration = noteDuration - remainingDuration;
+          if (leftoverDuration > 0) {
+            currentMeasure.notes.push({ ...note, duration: getDurationForQuarterNotes(leftoverDuration) });
+            currentMeasure.duration = leftoverDuration;
+          }
+        }
+      });
+
+      if (currentMeasure.notes.length > 0) {
+        newMeasures.push(currentMeasure);
+      }
+
+      if (newMeasures.length % measuresPerLine === 0 && newMeasures[newMeasures.length - 1].duration >= beatsPerMeasure) {
+        newMeasures.push({ notes: [], duration: 0 });
+      }
+
+      setMeasures(newMeasures);
+    };
+
+    if (measures.length > 0) {
+      reorganizeMeasures();
+    }
+  }, [timeSignature, setMeasures]);
+
+  const getDurationForQuarterNotes = (quarterNotes) => {
+    const map = { 4: 'w', 2: 'h', 1: 'q' };
+    return map[quarterNotes] || 'q';
+  };
+
   const renderScore = useCallback((targetDiv = scoreRef.current) => {
     if (!targetDiv) {
       console.error('Target div for rendering score is not available.');
@@ -22,7 +83,7 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     const durationMap = { 'w': 4, 'h': 2, 'q': 1 };
     const margin = 10;
     const clefAndTimeWidth = 50;
-    const beatsPerMeasure = 4;
+    const beatsPerMeasure = getBeatsPerMeasure();
     const staveHeight = 100;
 
     // 计算每个小节的宽度，并取最大值作为统一宽度
@@ -51,7 +112,7 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
 
     if (measures.length === 0) {
       const stave = new Stave(margin, 20, staveWidth);
-      stave.addClef('treble').addTimeSignature('4/4');
+      stave.addClef('treble').addTimeSignature(timeSignature);
       stave.setContext(context);
       stave.draw();
       staves.push(stave);
@@ -88,7 +149,7 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
 
         const stave = new Stave(x, y, staveWidth);
         if (measureIndex === 0 || (measureIndex % measuresPerLine === 0)) {
-          stave.addClef('treble').addTimeSignature('4/4');
+          stave.addClef('treble').addTimeSignature(timeSignature);
         }
         stave.setContext(context);
         staves.push(stave);
@@ -130,7 +191,7 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
 
     console.log('VexFlow Version:', Renderer.getVersion ? Renderer.getVersion() : 'Unknown');
     console.log('Rendered SVG:', targetDiv.innerHTML);
-  }, [measures, isJianpuMode, jianpuInput, scoreRef]);
+  }, [measures, isJianpuMode, jianpuInput, scoreRef, timeSignature]);
 
   const getNoteAtPosition = useCallback((x, y) => {
     if (measures.length === 0) return null;
@@ -139,6 +200,10 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     const margin = 10;
     const clefAndTimeWidth = 50;
     const staveHeight = 100;
+    const staveTopOffset = 20;
+    const lineSpacing = 10;
+    const staffHeight = 4 * lineSpacing;
+    const tolerance = 15;
 
     // 计算最大小节宽度（与 renderScore 保持一致）
     let maxStaveWidth = defaultStaveWidth;
@@ -152,9 +217,24 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
 
     const staveWidth = maxStaveWidth;
 
-    const lineIndex = Math.floor(y / staveHeight);
-    const xInCanvas = x - margin;
+    const numLines = Math.ceil(Math.max(measures.length, 1) / measuresPerLine);
+    let lineIndex = -1;
+    for (let i = 0; i < numLines; i++) {
+      const staveY = staveTopOffset + i * staveHeight;
+      const staveTop = staveY - tolerance;
+      const staveBottom = staveY + staffHeight + tolerance;
+      if (y >= staveTop && y <= staveBottom) {
+        lineIndex = i;
+        break;
+      }
+    }
 
+    if (lineIndex === -1) {
+      console.log(`Y coordinate ${y} outside any stave's vertical range`);
+      return null;
+    }
+
+    const xInCanvas = x - margin;
     const staveIndexInLine = Math.floor(xInCanvas / staveWidth);
     const measureIndex = lineIndex * measuresPerLine + staveIndexInLine;
 
@@ -164,11 +244,13 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     }
 
     const measure = measures[measureIndex];
-    if (!measure.notes.length) return null;
+    if (!measure.notes.length) {
+      console.log(`Measure ${measureIndex} has no notes`);
+      return null;
+    }
 
     const staveX = margin + (measureIndex % measuresPerLine) * staveWidth;
     const usableWidth = staveWidth - clefAndTimeWidth - 2 * margin;
-
     const noteWidth = usableWidth / (measure.notes.length || 1);
     const noteIndex = Math.floor((x - staveX - clefAndTimeWidth) / noteWidth);
 
@@ -333,7 +415,7 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     const newNote = { pitch: newPitch, duration: selectedDuration };
     const durationMap = { 'w': 4, 'h': 2, 'q': 1 };
     const noteDuration = durationMap[selectedDuration] || 1;
-    const beatsPerMeasure = 4;
+    const beatsPerMeasure = getBeatsPerMeasure();
 
     setMeasures(prevMeasures => {
       console.log('Previous measures:', JSON.stringify(prevMeasures, null, 2));
@@ -367,16 +449,15 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
         newMeasures.push({ notes: [newNote], duration: noteDuration });
       }
 
-      // 检查是否是第六个小节且已满
       if (newMeasures.length % measuresPerLine === 0 && newMeasures[newMeasures.length - 1].duration >= beatsPerMeasure) {
-        console.log('Sixth measure filled, adding new empty measure for new line');
+        console.log('Fourth measure filled, adding new empty measure for new line');
         newMeasures.push({ notes: [], duration: 0 });
       }
 
       console.log('New measures after update:', JSON.stringify(newMeasures, null, 2));
       return newMeasures;
     });
-  }, [isJianpuMode, selectedDuration, setMeasures, scoreRef]);
+  }, [isJianpuMode, selectedDuration, setMeasures, scoreRef, timeSignature]);
 
   const handleCanvasContextMenu = useCallback((event) => {
     event.preventDefault();
