@@ -34,7 +34,80 @@ const ScoreControls = ({ measures, title, scoreId, setScoreId, selectedInstrumen
       }
 
       await Tone.start();
-      const synth = new Tone.Synth().toDestination();
+
+      // Define instrument-specific synthesizer configurations
+      const instrumentConfigs = {
+        piano: {
+          synth: new Tone.Synth({
+            oscillator: { type: 'triangle' },
+            envelope: {
+              attack: 0.005,
+              decay: 0.3,
+              sustain: 0.1,
+              release: 0.5,
+            },
+          }).toDestination(),
+          effect: new Tone.Reverb({ decay: 2, wet: 0.3 }).toDestination(),
+        },
+        violin: {
+          synth: new Tone.MonoSynth({
+            oscillator: { type: 'sawtooth' },
+            envelope: {
+              attack: 0.1,
+              decay: 0.5,
+              sustain: 0.8,
+              release: 1,
+            },
+            filterEnvelope: {
+              attack: 0.1,
+              decay: 0.5,
+              sustain: 0.8,
+              release: 1,
+              baseFrequency: 200,
+              octaves: 2,
+            },
+          }).toDestination(),
+          effect: new Tone.Vibrato({ frequency: 5, depth: 0.1 }).toDestination(),
+        },
+        flute: {
+          synth: new Tone.Synth({
+            oscillator: { type: 'sine' },
+            envelope: {
+              attack: 0.2,
+              decay: 0.2,
+              sustain: 0.9,
+              release: 0.3,
+            },
+          }).toDestination(),
+          effect: new Tone.Tremolo({ frequency: 4, depth: 0.2 }).start(),
+        },
+        guitar: {
+          synth: new Tone.Synth({
+            oscillator: { type: 'square' },
+            envelope: {
+              attack: 0.01,
+              decay: 0.2,
+              sustain: 0.1,
+              release: 0.2,
+            },
+          }).toDestination(),
+          effect: new Tone.Distortion({ distortion: 0.2, wet: 0.3 }).toDestination(),
+        },
+      };
+
+      // Initialize synthesizer or fallback to default synth
+      let instrument;
+      if (instrumentConfigs[selectedInstrument]) {
+        instrument = instrumentConfigs[selectedInstrument].synth;
+        // Connect synth to effect if applicable
+        if (instrumentConfigs[selectedInstrument].effect) {
+          instrument.chain(instrumentConfigs[selectedInstrument].effect, Tone.Destination);
+        }
+      } else {
+        console.warn(`No configuration for ${selectedInstrument}. Falling back to Tone.Synth.`);
+        instrument = new Tone.Synth().toDestination();
+      }
+
       const noteDuration = (60 / tempo / 2) * 1000; // Eighth note duration in milliseconds
 
       flatNotes.forEach((note, index) => {
@@ -42,8 +115,12 @@ const ScoreControls = ({ measures, title, scoreId, setScoreId, selectedInstrumen
         if (note.pitch !== 'r') {
           const midiNote = note.pitch.split('/').map((part, i) => (i === 0 ? part.toUpperCase() : part)).join('');
           setTimeout(() => {
-            synth.triggerAttackRelease(midiNote, '8n');
-            setCurrentNoteIndex(index); // Highlight the current note
+            try {
+              instrument.triggerAttackRelease(midiNote, '8n');
+              setCurrentNoteIndex(index); // Highlight the current note
+            } catch (error) {
+              console.error(`Error playing note ${midiNote}: ${error}`);
+            }
           }, delay);
         } else {
           setTimeout(() => {
@@ -52,10 +129,13 @@ const ScoreControls = ({ measures, title, scoreId, setScoreId, selectedInstrumen
         }
       });
 
-      // Clear highlight and dispose synth after playback
+      // Clear highlight and dispose instrument after playback
       setTimeout(() => {
         setCurrentNoteIndex(-1);
-        synth.dispose();
+        instrument.dispose();
+        if (instrumentConfigs[selectedInstrument] && instrumentConfigs[selectedInstrument].effect) {
+          instrumentConfigs[selectedInstrument].effect.dispose();
+        }
       }, flatNotes.length * noteDuration);
     } catch (error) {
       console.error('Error playing score:', error);

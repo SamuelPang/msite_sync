@@ -8,6 +8,8 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
   const [dragStartY, setDragStartY] = useState(0);
   const measuresPerLine = 4;
   const synthRef = useRef(null);
+  const lastPlayTimeRef = useRef(0);
+  const debounceTimeoutRef = useRef(null);
 
   const getBeatsPerMeasure = useCallback(() => {
     switch (timeSignature) {
@@ -39,10 +41,23 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
     const midiNote = convertToMidiNote(pitch);
     if (!midiNote) return;
 
+    const now = Date.now();
+    const minInterval = 100; // Minimum interval between notes in ms
+
+    if (now - lastPlayTimeRef.current < minInterval) {
+      // Debounce: clear any pending playback
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+      debounceTimeoutRef.current = setTimeout(() => playNote(pitch), minInterval);
+      return;
+    }
+
     try {
       await Tone.start();
       synthRef.current.triggerRelease();
       synthRef.current.triggerAttackRelease(midiNote, '8n');
+      lastPlayTimeRef.current = now;
     } catch (error) {
       console.error('Error playing note:', error);
     }
@@ -376,6 +391,10 @@ const ScoreCanvas = ({ scoreRef, measures, setMeasures, isJianpuMode, jianpuInpu
       setDragStartY(0);
       if (synthRef.current) {
         synthRef.current.triggerRelease();
+      }
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+        debounceTimeoutRef.current = null;
       }
     }
   }, [isDragging]);
